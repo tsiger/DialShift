@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DialShift.Core;
+using DialShift.Visualization;
 
 namespace DialShift;
 
@@ -24,6 +25,8 @@ public sealed class MainWindow : Window
     private readonly Slider volume;
     private readonly TextBlock volumeLabel = Text("60%", 12, false, "#A3B4B6");
     private readonly Button[] navigation = new Button[3];
+    private readonly VisualizerControl visualizer;
+    private readonly TextBlock visualizerLabel = Text("VISUALIZER · BARS", 10, true, "#81989A");
     private int tab;
     private int selectedDay = ((int)DateTime.Now.DayOfWeek + 6) % 7;
     public static readonly DayOfWeek[] Week = [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
@@ -80,6 +83,25 @@ public sealed class MainWindow : Window
         dialMark.HorizontalAlignment = HorizontalAlignment.Center; dialMark.VerticalAlignment = VerticalAlignment.Center;
         dial.Children.Add(dialMark);
         Grid.SetColumn(dial, 1); playerGrid.Children.Add(dial);
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(information, 0); Grid.SetRow(dial, 0);
+        visualizer = new VisualizerControl(app.Spectrum, ParseStyle(app.Settings.VisualizerStyle));
+        var visualizerHeader = new DockPanel { Margin = new Thickness(0, 18, 0, 6), LastChildFill = false };
+        visualizerLabel.Text = "VISUALIZER · " + app.Settings.VisualizerStyle.ToUpperInvariant();
+        visualizerLabel.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(visualizerLabel, Dock.Left); visualizerHeader.Children.Add(visualizerLabel);
+        var visualizerButton = Button("Change graph ⟳", () => visualizer.CycleStyle());
+        DockPanel.SetDock(visualizerButton, Dock.Right); visualizerHeader.Children.Add(visualizerButton);
+        Grid.SetRow(visualizerHeader, 1); Grid.SetColumnSpan(visualizerHeader, 2); playerGrid.Children.Add(visualizerHeader);
+        visualizer.StyleChanged += style =>
+        {
+            app.Settings.VisualizerStyle = style.ToString();
+            visualizerLabel.Text = "VISUALIZER · " + style.ToString().ToUpperInvariant();
+            app.Save();
+        };
+        Grid.SetRow(visualizer, 2); Grid.SetColumnSpan(visualizer, 2); playerGrid.Children.Add(visualizer);
         var playerCard = Card(playerGrid, "#203029", new Thickness(26, 22, 26, 22));
         Grid.SetRow(playerCard, 1); shell.Children.Add(playerCard);
 
@@ -108,6 +130,8 @@ public sealed class MainWindow : Window
         if (accent) { button.Background = Brush("#C2F278"); button.Foreground = Brush("#172216"); }
         button.Click += (_, _) => action(); return button;
     }
+    private static VisualizerStyle ParseStyle(string value) => Enum.TryParse<VisualizerStyle>(value, true, out var style) ? style : VisualizerStyle.Bars;
+
     public static Border Card(UIElement content, string color = "#192527", Thickness? padding = null) => new()
     { Background = Brush(color), CornerRadius = new CornerRadius(12), Padding = padding ?? new Thickness(18), Child = content, Margin = new Thickness(0, 0, 0, 10) };
 

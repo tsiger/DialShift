@@ -33,6 +33,7 @@ public sealed class Settings
     public bool StartInTray { get; set; }
     public Guid? FallbackStationId { get; set; }
     public Guid? LastStationId { get; set; }
+    public string VisualizerStyle { get; set; } = "Bars";
 
     public static Settings Defaults() => new()
     {

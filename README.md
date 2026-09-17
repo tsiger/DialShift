@@ -54,6 +54,11 @@ intact. [More Mac setup, import and build instructions](MACOS.md).
   Each station plays until the next scheduled start; there are no end-time/stop slots.
 - Pick a station manually or press **Pause** to override the current slot until the
   next scheduled switch. Play reconnects to the live broadcast.
+- **Windows:** the player card shows a live visualizer under the play/skip controls.
+  Click it (or **Change graph**) to cycle Bars, Scope and Off, Winamp-style;
+  your choice is remembered. It reads DialShift's own decoded audio via Windows'
+  per-process WASAPI loopback (Windows 10 2004+/Windows 11) and never touches
+  playback, so muting or a very old Windows build just leaves it idle.
 - Schedules repeat weekly in your computer's local time zone and catch up after
   sleep or a missed start. DialShift does not wake a sleeping computer. A repeated
   daylight-saving occurrence fires once per running session.
@@ -130,6 +135,7 @@ testing.
 
 - `DialShift.Core`: shared models, persistence, weekly scheduling and occurrence tracking.
 - `DialShift`: Windows WPF interface, tray controls, LibVLC playback and Windows integration.
+  `Visualization/` holds the player-card visualizer (WASAPI loopback capture, FFT, render styles).
 - `DialShift.Desktop`: Mac Avalonia interface, menu-bar controls and native AVPlayer audio.
   Its development-only Windows preview uses separate `DialShift-Preview` preferences.
 - `DialShift.Tests`: scheduling and persistence checks.

@@ -31,6 +31,7 @@ internal static class SmokeChecks
                 while (!app.Radio.IsPlaying && DateTime.UtcNow < deadline) await Task.Delay(250);
                 var playing = app.Radio.IsPlaying;
                 await Task.Delay(2000);
+                if (station == app.Settings.Stations[0]) Capture(window, Path.Combine(output, "playing.png"));
                 checks.Add(new { name = "Live playback: " + station.Name, passed = playing && app.Radio.IsPlaying, status = app.Radio.Status });
             }
             app.Radio.Pause();
