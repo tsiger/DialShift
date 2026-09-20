@@ -31,6 +31,7 @@ internal static class SmokeChecks
                 while (!app.Radio.IsPlaying && DateTime.UtcNow < deadline) await Task.Delay(250);
                 var playing = app.Radio.IsPlaying;
                 await Task.Delay(2000);
+                if (station == app.Settings.Stations[0]) Capture(window, Path.Combine(output, "playing.png"));
                 checks.Add(new { name = "Live playback: " + station.Name, passed = playing && app.Radio.IsPlaying, status = app.Radio.Status });
             }
             app.Radio.Pause();
@@ -53,8 +54,10 @@ internal static class SmokeChecks
             app.Radio.Pause();
             app.Radio.ResumeFromSleep();
             checks.Add(new { name = "Resume preserves pause within same slot", passed = !app.Radio.IsActive });
-            window.SelectPage(1); await Task.Delay(200); Capture(window, Path.Combine(output, "schedule.png"));
-            window.SelectPage(2); await Task.Delay(200); Capture(window, Path.Combine(output, "settings.png"));
+            window.SelectPage(0); await Task.Delay(200); Capture(window, Path.Combine(output, "stations.png"));
+            window.SelectPage(1); await Task.Delay(200); Capture(window, Path.Combine(output, "edit-stations.png"));
+            window.SelectPage(2); await Task.Delay(200); Capture(window, Path.Combine(output, "schedule.png"));
+            window.SelectPage(3); await Task.Delay(200); Capture(window, Path.Combine(output, "settings.png"));
             var stationEditor = new StationDialog(app, app.Settings.Stations[0]) { Owner = window }; stationEditor.Show(); await Task.Delay(150); Capture(stationEditor, Path.Combine(output, "station-editor.png")); stationEditor.Close();
             var scheduleEditor = new ScheduleDialog(app, slot, DateTime.Now.DayOfWeek) { Owner = window }; scheduleEditor.Show(); await Task.Delay(150); Capture(scheduleEditor, Path.Combine(output, "schedule-editor.png")); scheduleEditor.Close();
             window.Width = 780; window.Height = 650; window.SelectPage(0); await Task.Delay(200); Capture(window, Path.Combine(output, "compact.png"));

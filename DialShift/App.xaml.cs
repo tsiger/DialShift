@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using DialShift.Core;
+using DialShift.Visualization;
 using Microsoft.Win32;
 using Forms = System.Windows.Forms;
 
@@ -16,6 +17,8 @@ public partial class App : Application
     public Settings Settings { get; private set; } = null!;
     public SettingsStore Store { get; private set; } = null!;
     public RadioController Radio { get; private set; } = null!;
+    public AudioSpectrum Spectrum { get; } = new();
+    private SystemAudioTap? audioTap;
     private Forms.NotifyIcon? tray;
     private Mutex? mutex;
     private EventWaitHandle? activation;
@@ -46,6 +49,8 @@ public partial class App : Application
             Settings = Store.Load();
             if (SmokeTest) Settings.Volume = 0;
             Radio = new RadioController(Settings, Dispatcher);
+            audioTap = new SystemAudioTap(Spectrum);
+            audioTap.Start();
             MainWindow = new MainWindow(this);
             CreateTray();
             Radio.Changed += UpdateTray;
@@ -160,6 +165,7 @@ public partial class App : Application
         SystemEvents.PowerModeChanged -= PowerChanged;
         if (Settings != null && Store != null) Save();
         Radio?.Dispose();
+        audioTap?.Dispose();
         if (tray != null) { tray.Visible = false; tray.Icon?.Dispose(); tray.Dispose(); }
         activation?.Set();
         mutex?.Dispose();

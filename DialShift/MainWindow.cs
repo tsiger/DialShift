@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using DialShift.Core;
+using DialShift.Visualization;
 
 namespace DialShift;
 
@@ -23,7 +24,9 @@ public sealed class MainWindow : Window
     private readonly Button play;
     private readonly Slider volume;
     private readonly TextBlock volumeLabel = Text("60%", 12, false, "#A3B4B6");
-    private readonly Button[] navigation = new Button[3];
+    private readonly Button[] navigation = new Button[4];
+    private readonly VisualizerControl visualizer;
+    private readonly TextBlock visualizerLabel = Text("VISUALIZER · BARS", 10, true, "#81989A");
     private int tab;
     private int selectedDay = ((int)DateTime.Now.DayOfWeek + 6) % 7;
     public static readonly DayOfWeek[] Week = [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday];
@@ -80,12 +83,31 @@ public sealed class MainWindow : Window
         dialMark.HorizontalAlignment = HorizontalAlignment.Center; dialMark.VerticalAlignment = VerticalAlignment.Center;
         dial.Children.Add(dialMark);
         Grid.SetColumn(dial, 1); playerGrid.Children.Add(dial);
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        playerGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Grid.SetRow(information, 0); Grid.SetRow(dial, 0);
+        visualizer = new VisualizerControl(app.Spectrum, ParseStyle(app.Settings.VisualizerStyle));
+        var visualizerHeader = new DockPanel { Margin = new Thickness(0, 18, 0, 6), LastChildFill = false };
+        visualizerLabel.Text = "VISUALIZER · " + app.Settings.VisualizerStyle.ToUpperInvariant();
+        visualizerLabel.VerticalAlignment = VerticalAlignment.Center;
+        DockPanel.SetDock(visualizerLabel, Dock.Left); visualizerHeader.Children.Add(visualizerLabel);
+        var visualizerButton = Button("Change graph ⟳", () => visualizer.CycleStyle());
+        DockPanel.SetDock(visualizerButton, Dock.Right); visualizerHeader.Children.Add(visualizerButton);
+        Grid.SetRow(visualizerHeader, 1); Grid.SetColumnSpan(visualizerHeader, 2); playerGrid.Children.Add(visualizerHeader);
+        visualizer.StyleChanged += style =>
+        {
+            app.Settings.VisualizerStyle = style.ToString();
+            visualizerLabel.Text = "VISUALIZER · " + style.ToString().ToUpperInvariant();
+            app.Save();
+        };
+        Grid.SetRow(visualizer, 2); Grid.SetColumnSpan(visualizer, 2); playerGrid.Children.Add(visualizer);
         var playerCard = Card(playerGrid, "#203029", new Thickness(26, 22, 26, 22));
         Grid.SetRow(playerCard, 1); shell.Children.Add(playerCard);
 
         var section = new StackPanel { Margin = new Thickness(0, 22, 0, 16) };
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 20) };
-        var names = new[] { "Stations", "Schedule", "Settings" };
+        var names = new[] { "Stations", "Edit stations", "Schedule", "Settings" };
         for (var i = 0; i < names.Length; i++) { var index = i; navigation[i] = Button(names[i], () => { tab = index; RefreshPage(); }); tabs.Children.Add(navigation[i]); }
         section.Children.Add(tabs); section.Children.Add(pageTitle); pageDescription.Margin = new Thickness(0, 5, 0, 0); section.Children.Add(pageDescription);
         Grid.SetRow(section, 2); shell.Children.Add(section);
@@ -108,6 +130,8 @@ public sealed class MainWindow : Window
         if (accent) { button.Background = Brush("#C2F278"); button.Foreground = Brush("#172216"); }
         button.Click += (_, _) => action(); return button;
     }
+    private static VisualizerStyle ParseStyle(string value) => Enum.TryParse<VisualizerStyle>(value, true, out var style) ? style : VisualizerStyle.Bars;
+
     public static Border Card(UIElement content, string color = "#192527", Thickness? padding = null) => new()
     { Background = Brush(color), CornerRadius = new CornerRadius(12), Padding = padding ?? new Thickness(18), Child = content, Margin = new Thickness(0, 0, 0, 10) };
 
@@ -128,31 +152,80 @@ public sealed class MainWindow : Window
     {
         page.Children.Clear();
         for (var i = 0; i < navigation.Length; i++) { navigation[i].Background = Brush(i == tab ? "#C2F278" : "#293638"); navigation[i].Foreground = Brush(i == tab ? "#172216" : "#B4C3C3"); }
-        if (tab == 0) ShowStations(); else if (tab == 1) ShowSchedule(); else ShowSettings();
+        if (tab == 0) ShowStations(); else if (tab == 1) ShowEditStations(); else if (tab == 2) ShowSchedule(); else ShowSettings();
         UpdatePlayer();
     }
 
     internal void SelectPage(int index) { tab = index; RefreshPage(); }
 
+    private const double MinTileWidth = 300;
+
     private void ShowStations()
     {
         pageTitle.Text = "Your stations"; pageDescription.Text = "A few good frequencies. Always within reach.";
+        if (app.Settings.Stations.Count == 0)
+        {
+            page.Children.Add(Card(Text("Start with a station you love. Add its direct MP3, AAC or HLS stream URL in Edit stations.", 16)));
+            return;
+        }
+        // Tiles flow left to right and wrap; ItemWidth is recomputed so each row fills the available width evenly.
+        var tiles = new WrapPanel { Margin = new Thickness(0, 0, -10, 0) };
+        tiles.SizeChanged += (_, e) => tiles.ItemWidth = e.NewSize.Width / Math.Max(1, Math.Floor(e.NewSize.Width / MinTileWidth));
+        foreach (var station in app.Settings.Stations) tiles.Children.Add(StationTile(station));
+        page.Children.Add(tiles);
+    }
+
+    private Border StationTile(Station station)
+    {
+        const string rest = "#192527", hover = "#2B4232";
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(58) });
+        row.ColumnDefinitions.Add(new ColumnDefinition());
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        row.Children.Add(StationBadge(station));
+        var info = StationInfo(station, false); Grid.SetColumn(info, 1); row.Children.Add(info);
+        var playChip = new Border { CornerRadius = new CornerRadius(8), Background = Brush("#C2F278"), Padding = new Thickness(12, 7, 12, 7), VerticalAlignment = VerticalAlignment.Center, Opacity = 0, Child = Text("▶  Play", 12, true, "#172216") };
+        Grid.SetColumn(playChip, 2); row.Children.Add(playChip);
+        var tile = new Border { Background = Brush(rest), CornerRadius = new CornerRadius(12), Padding = new Thickness(14), Margin = new Thickness(0, 0, 10, 10), Child = row, Cursor = System.Windows.Input.Cursors.Hand, Focusable = true };
+        AutomationProperties.SetName(tile, "Play " + station.Name);
+        void Highlight(bool on) { tile.Background = Brush(on ? hover : rest); playChip.Opacity = on ? 1 : 0; }
+        void Play() { app.Radio.Play(station); app.Save(); }
+        tile.MouseEnter += (_, _) => Highlight(true);
+        tile.MouseLeave += (_, _) => Highlight(tile.IsKeyboardFocused);
+        tile.GotKeyboardFocus += (_, _) => Highlight(true);
+        tile.LostKeyboardFocus += (_, _) => Highlight(tile.IsMouseOver);
+        tile.MouseLeftButtonUp += (_, _) => Play();
+        tile.KeyDown += (_, e) => { if (e.Key is System.Windows.Input.Key.Enter or System.Windows.Input.Key.Space) { Play(); e.Handled = true; } };
+        return tile;
+    }
+
+    private static Border StationBadge(Station station)
+    {
+        var initial = Text(station.Name[..1].ToUpperInvariant(), 24, true, "#C2F278"); initial.HorizontalAlignment = HorizontalAlignment.Center; initial.VerticalAlignment = VerticalAlignment.Center;
+        return new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(10), Background = Brush("#30413A"), Child = initial, HorizontalAlignment = HorizontalAlignment.Left };
+    }
+
+    private StackPanel StationInfo(Station station, bool showFallback)
+    {
+        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
+        var name = Text(station.Name, 17, true); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; info.Children.Add(name);
+        var tag = Text(station.Tag + (showFallback && app.Settings.FallbackStationId == station.Id ? " · Fallback" : ""), 12, false, "#9BB0B2", new Thickness(0, 4, 0, 0)); tag.TextWrapping = TextWrapping.NoWrap; tag.TextTrimming = TextTrimming.CharacterEllipsis; info.Children.Add(tag);
+        return info;
+    }
+
+    private void ShowEditStations()
+    {
+        pageTitle.Text = "Edit stations"; pageDescription.Text = "Add new frequencies or change the ones you have.";
         var tools = new DockPanel { Margin = new Thickness(0, 0, 0, 14) };
         var add = Button("+  Add station", () => EditStation(null), true); DockPanel.SetDock(add, Dock.Right); tools.Children.Add(add);
         tools.Children.Add(Text($"{app.Settings.Stations.Count:00}  SAVED FREQUENCIES", 11, true, "#81989A", new Thickness(0, 12, 0, 0))); page.Children.Add(tools);
         foreach (var station in app.Settings.Stations)
         {
             var row = new Grid(); row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) }); row.ColumnDefinitions.Add(new ColumnDefinition()); row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var initial = Text(station.Name[..1].ToUpperInvariant(), 24, true, "#C2F278"); initial.HorizontalAlignment = HorizontalAlignment.Center; initial.VerticalAlignment = VerticalAlignment.Center;
-            row.Children.Add(new Border { Width = 44, Height = 44, CornerRadius = new CornerRadius(10), Background = Brush("#30413A"), Child = initial, HorizontalAlignment = HorizontalAlignment.Left });
-            var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-            var name = Text(station.Name, 17, true); name.TextWrapping = TextWrapping.NoWrap; name.TextTrimming = TextTrimming.CharacterEllipsis; info.Children.Add(name);
-            info.Children.Add(Text(station.Tag + (app.Settings.FallbackStationId == station.Id ? " · Fallback" : ""), 12, false, "#9BB0B2", new Thickness(0, 4, 0, 0)));
-            Grid.SetColumn(info, 1); row.Children.Add(info);
-            var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            actions.Children.Add(Button("▶  Listen", () => { app.Radio.Play(station); app.Save(); }));
-            actions.Children.Add(Button("Edit", () => EditStation(station)));
-            Grid.SetColumn(actions, 2); row.Children.Add(actions); page.Children.Add(Card(row));
+            row.Children.Add(StationBadge(station));
+            var info = StationInfo(station, true); Grid.SetColumn(info, 1); row.Children.Add(info);
+            var edit = Button("Edit", () => EditStation(station)); edit.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(edit, 2); row.Children.Add(edit); page.Children.Add(Card(row));
         }
         if (app.Settings.Stations.Count == 0) page.Children.Add(Card(Text("Start with a station you love. Add its direct MP3, AAC or HLS stream URL above.", 16)));
         page.Children.Add(Text("Starter stations by SomaFM. Add your Greek favorites with their direct stream URLs.", 12, false, "#81989A", new Thickness(0, 6, 0, 8)));
@@ -217,8 +290,19 @@ public sealed class MainWindow : Window
         fallback.SelectionChanged += (_, _) => { app.Settings.FallbackStationId = fallback.SelectedItem is Station s && s.Id != Guid.Empty ? s.Id : null; app.Save(); }; recovery.Children.Add(fallback); page.Children.Add(Card(recovery));
         var about = new StackPanel(); about.Children.Add(Text("DialShift  /  0.2.0", 16, true));
         about.Children.Add(Text("Your stations. Your schedule. Stored on this computer.", 13, false, "#9BB0B2", new Thickness(0, 6, 0, 14)));
-        about.Children.Add(Button("Open settings folder ↗", () => Process.Start(new ProcessStartInfo("explorer.exe", app.Store.DirectoryPath) { UseShellExecute = true })));
+        var actions = new StackPanel { Orientation = Orientation.Horizontal };
+        actions.Children.Add(Button("Open settings folder ↗", () => Process.Start(new ProcessStartInfo("explorer.exe", app.Store.DirectoryPath) { UseShellExecute = true })));
+        var export = Button("Export stations & schedule…", ExportSettings); export.Margin = new Thickness(10, 0, 0, 0); actions.Children.Add(export);
+        about.Children.Add(actions);
         page.Children.Add(Card(about));
+    }
+
+    private void ExportSettings()
+    {
+        var dialog = new Microsoft.Win32.SaveFileDialog { Title = "Export DialShift settings", FileName = "DialShift-settings.json", DefaultExt = ".json", Filter = "DialShift settings (*.json)|*.json" };
+        if (dialog.ShowDialog(this) != true) return;
+        try { app.Store.Save(app.Settings); System.IO.File.Copy(app.Store.FilePath, dialog.FileName, true); }
+        catch (Exception ex) { MessageBox.Show(this, ex.Message, "Couldn't export settings"); }
     }
 
     private sealed class UniformGridShim : System.Windows.Controls.Primitives.UniformGrid
